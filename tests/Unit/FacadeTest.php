@@ -3,31 +3,28 @@ declare(strict_types=1);
 
 namespace Tekkenking\Dbbackupman\Tests\Unit;
 
-use Illuminate\Support\Facades\Artisan;
 use Orchestra\Testbench\TestCase;
-use Tekkenking\Dbbackupman\DbBackupServiceProvider;
 use Tekkenking\Dbbackupman\Facades\DbBackupman;
+use Tekkenking\Dbbackupman\Tests\Fixtures\SpyBackupCommand;
+use Tekkenking\Dbbackupman\Tests\Fixtures\SpyServiceProvider;
 
 class FacadeTest extends TestCase
 {
     protected function getPackageProviders($app)
     {
-        return [DbBackupServiceProvider::class];
+        // IMPORTANT: Do NOT load the real package provider here,
+        // we want our test-only provider to register the spy command
+        return [SpyServiceProvider::class];
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        SpyBackupCommand::$captured = null;
     }
 
     public function test_facade_runs_artisan_with_flags(): void
     {
-        Artisan::shouldReceive('call')
-            ->once()
-            ->with('db:backup', \Mockery::on(function ($args) {
-                return isset($args['--connection'])
-                    && $args['--connection'] === 'pgsql'
-                    && isset($args['--mode'])
-                    && $args['--mode'] === 'full'
-                    && array_key_exists('--gzip', $args); // boolean flag present
-            }))
-            ->andReturn(0);
-
         $rc = DbBackupman::run([
             'connection' => 'pgsql',
             'mode'       => 'full',
@@ -35,5 +32,10 @@ class FacadeTest extends TestCase
         ]);
 
         $this->assertSame(0, $rc);
+        $this->assertIsArray(SpyBackupCommand::$captured);
+
+        $this->assertSame('pgsql', SpyBackupCommand::$captured['connection']);
+        $this->assertSame('full',  SpyBackupCommand::$captured['mode']);
+        $this->assertTrue(SpyBackupCommand::$captured['gzip']);
     }
 }

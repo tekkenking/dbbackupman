@@ -15,7 +15,7 @@ class DbBackupServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__ . '/../config/dbbackup.php', 'dbbackup');
+        $this->mergeConfigFrom(__DIR__ . '/config/dbbackup.php', 'dbbackup');
 
         $this->app->bind(Uploader::class, StorageUploader::class);
         $this->app->bind(StateRepository::class, DiskStateRepository::class);
