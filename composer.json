@@ -1,14 +1,15 @@
 {
     "name": "tekkenking/dbbackupman",
     "description": "Cross-DB backups (PostgreSQL/MySQL/MariaDB) with uploads, retention, and incremental options.",
-    "type": "package",
+    "type": "library",
+    "license": "MIT",
     "require": {
-        "laravel/framework": "12.x-dev",
         "php": "^8.1|^8.2|^8.3",
         "illuminate/support": "^10.0|^11.0|^12.0",
         "illuminate/console": "^10.0|^11.0|^12.0",
         "illuminate/filesystem": "^10.0|^11.0|^12.0",
-        "symfony/process": "^6.4|^7.0"
+        "symfony/process": "^6.4|^7.0",
+        "nesbot/carbon": "^2.0"
     },
     "require-dev": {
         "orchestra/testbench": "^8.0|^9.0|^10.0",
@@ -25,18 +26,13 @@
             "Tekkenking\\Dbbackupman\\Tests\\": "tests/"
         }
     },
-    "authors": [
-        {
-            "name": "tekkenking",
-            "email": "mytansill@yahoo.com"
-        }
-    ],
-    "minimum-stability": "dev",
     "extra": {
         "laravel": {
             "providers": [
                 "Tekkenking\\Dbbackupman\\DbBackupServiceProvider"
             ]
         }
-    }
+    },
+    "prefer-stable": true,
+    "minimum-stability": "stable"
 }

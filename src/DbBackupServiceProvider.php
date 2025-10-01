@@ -28,7 +28,7 @@ class DbBackupServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->publishes([
-            __DIR__ . '/../config/dbbackup.php' => config_path('dbbackup.php'),
+            __DIR__ . '/config/dbbackup.php' => config_path('dbbackup.php'),
         ], 'config');
 
         if ($this->app->runningInConsole()) {
