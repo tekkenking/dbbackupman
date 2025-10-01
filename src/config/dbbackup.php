@@ -22,4 +22,6 @@ return [
         'keep' => null,            // keep last N backup sets
         'days' => null,            // delete sets older than D days
     ],
+
+    'keep_raw' => env('DBBACKUP_KEEP_RAW', false), // keep uncompressed files alongside .gz?
 ];
