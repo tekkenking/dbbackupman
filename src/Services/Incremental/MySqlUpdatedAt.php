@@ -259,7 +259,7 @@ class MySqlUpdatedAt implements IncrementalStrategy
             }
             // Try ISO8601 format
             return new \DateTimeImmutable($date, new \DateTimeZone('UTC'));
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             throw new \InvalidArgumentException("Invalid date format: {$date}. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS");
         }
     }
