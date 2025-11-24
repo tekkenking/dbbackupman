@@ -286,8 +286,10 @@ class DbBackupCommand extends Command
                 $incrementalType = strtolower($this->option('incremental-type') ?: 'binlog');
                 if ($incrementalType === 'binlog') {
                     $toCheck[] = $tools['mysqlbinlog'] ?? 'mysqlbinlog';
+                } else {
+                    // For updated_at, we need mysql client for CSV exports
+                    $toCheck[] = $tools['mysql'] ?? 'mysql';
                 }
-                // For updated_at, we also need mysql client and mysqldump (already added above)
             }
         }
 

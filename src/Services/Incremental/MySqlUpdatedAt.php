@@ -211,15 +211,24 @@ class MySqlUpdatedAt implements IncrementalStrategy
             $cmd[] = '--password=' . $c->password;
         }
 
-        $p = new \Symfony\Component\Process\Process($cmd);
-        $p->setTimeout(null)->run(function ($type, $buffer) use ($fh) {
-            if ($type === \Symfony\Component\Process\Process::OUT) {
-                fwrite($fh, $buffer);
+        // Create a temporary file to capture output, then copy to the target file handle
+        $tmpFile = tempnam(sys_get_temp_dir(), 'mysqldump_');
+        
+        try {
+            $this->runner->runToFile($cmd, $tmpFile, [], null);
+            
+            // Copy temp file content to the provided file handle
+            if (File::exists($tmpFile)) {
+                $content = file_get_contents($tmpFile);
+                if ($content !== false) {
+                    fwrite($fh, $content);
+                }
             }
-        });
-
-        if (!$p->isSuccessful()) {
-            throw new \RuntimeException("mysqldump failed for table $table: " . $p->getErrorOutput());
+        } finally {
+            // Ensure temp file is always cleaned up
+            if (File::exists($tmpFile)) {
+                File::delete($tmpFile);
+            }
         }
     }
 

@@ -206,41 +206,45 @@ SQL)->fetchAll(\PDO::FETCH_ASSOC);
         
         // Export data using COPY to get CSV, then convert to INSERT statements
         $tmpCsv = tempnam(sys_get_temp_dir(), 'pgsql_export_');
-        $sql = sprintf(
-            "COPY (SELECT * FROM \"%s\".\"%s\" WHERE \"updated_at\" >= TIMESTAMP '%s' AND \"updated_at\" <= TIMESTAMP '%s') TO STDOUT WITH CSV",
-            addslashes($schema),
-            addslashes($table),
-            addslashes($fromDate->format('Y-m-d H:i:s')),
-            addslashes($toDate->format('Y-m-d H:i:s'))
-        );
         
-        $this->runner->runToFile([$c->tools['psql'],'--no-align','--tuples-only','--dbname='.$dsn,'-c',$sql], $tmpCsv, $env, null);
-        
-        if (File::exists($tmpCsv) && File::size($tmpCsv) > 0) {
-            fwrite($fh, "-- Table: {$schema}.{$table}\n");
+        try {
+            $sql = sprintf(
+                "COPY (SELECT * FROM \"%s\".\"%s\" WHERE \"updated_at\" >= TIMESTAMP '%s' AND \"updated_at\" <= TIMESTAMP '%s') TO STDOUT WITH CSV",
+                addslashes($schema),
+                addslashes($table),
+                addslashes($fromDate->format('Y-m-d H:i:s')),
+                addslashes($toDate->format('Y-m-d H:i:s'))
+            );
             
-            // Read CSV and convert to INSERT statements
-            if (($csvFh = fopen($tmpCsv, 'r')) !== false) {
-                while (($line = fgets($csvFh)) !== false) {
-                    $line = trim($line);
-                    if ($line === '') continue;
-                    
-                    // Parse CSV line and escape for SQL
-                    $values = str_getcsv($line);
-                    $escapedValues = array_map(function($val) use ($pdo) {
-                        if ($val === '' || $val === null) return 'NULL';
-                        return $pdo->quote($val);
-                    }, $values);
-                    
-                    fwrite($fh, "INSERT INTO \"{$schema}\".\"{$table}\" ({$columnList}) VALUES (" . implode(', ', $escapedValues) . ");\n");
+            $this->runner->runToFile([$c->tools['psql'],'--no-align','--tuples-only','--dbname='.$dsn,'-c',$sql], $tmpCsv, $env, null);
+            
+            if (File::exists($tmpCsv) && File::size($tmpCsv) > 0) {
+                fwrite($fh, "-- Table: {$schema}.{$table}\n");
+                
+                // Read CSV and convert to INSERT statements
+                if (($csvFh = fopen($tmpCsv, 'r')) !== false) {
+                    while (($line = fgets($csvFh)) !== false) {
+                        $line = trim($line);
+                        if ($line === '') continue;
+                        
+                        // Parse CSV line and escape for SQL
+                        $values = str_getcsv($line);
+                        $escapedValues = array_map(function($val) use ($pdo) {
+                            if ($val === '' || $val === null) return 'NULL';
+                            return $pdo->quote($val);
+                        }, $values);
+                        
+                        fwrite($fh, "INSERT INTO \"{$schema}\".\"{$table}\" ({$columnList}) VALUES (" . implode(', ', $escapedValues) . ");\n");
+                    }
+                    fclose($csvFh);
                 }
-                fclose($csvFh);
+                
+                fwrite($fh, "\n");
             }
-            
-            fwrite($fh, "\n");
+        } finally {
+            // Ensure temp file is always cleaned up
+            if (File::exists($tmpCsv)) File::delete($tmpCsv);
         }
-        
-        if (File::exists($tmpCsv)) File::delete($tmpCsv);
     }
 
     /**
