@@ -9,6 +9,7 @@ return [
         'psql'        => env('DBBACKUP_PSQL', 'psql'),
         'mysqldump'   => env('DBBACKUP_MYSQLDUMP', 'mysqldump'),
         'mysqlbinlog' => env('DBBACKUP_MYSQLBINLOG', 'mysqlbinlog'),
+        'mysql'       => env('DBBACKUP_MYSQL', 'mysql'),
     ],
 
     'upload' => [

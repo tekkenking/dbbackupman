@@ -72,21 +72,21 @@ class MySqlUpdatedAt implements IncrementalStrategy
             $safe = preg_replace('/[^A-Za-z0-9._-]+/','-', $table);
             $csv  = $dir . DIRECTORY_SEPARATOR . "{$safe}.csv";
             
-            // Use mysql to export with WHERE clause
-            $whereClause = sprintf(
-                "updated_at >= '%s' AND updated_at <= '%s'",
-                $fromDate->format('Y-m-d H:i:s'),
-                $toDate->format('Y-m-d H:i:s')
-            );
+            // Build WHERE clause with properly escaped dates
+            $fromStr = $fromDate->format('Y-m-d H:i:s');
+            $toStr = $toDate->format('Y-m-d H:i:s');
             
+            // Use mysql client configured in tools
             $cmd = [
-                'mysql',
+                $c->tools['mysql'] ?? 'mysql',
                 '--host=' . $c->host,
                 '--port=' . $c->port,
                 '--user=' . $c->username,
                 '--batch',
                 '--skip-column-names',
-                '--execute=SELECT * FROM `' . str_replace('`', '``', $table) . '` WHERE ' . $whereClause,
+                '--execute=SELECT * FROM `' . str_replace('`', '``', $table) . 
+                    '` WHERE updated_at >= \'' . str_replace("'", "\\'", $fromStr) . 
+                    '\' AND updated_at <= \'' . str_replace("'", "\\'", $toStr) . '\'',
                 $c->database,
             ];
             
@@ -125,11 +125,11 @@ class MySqlUpdatedAt implements IncrementalStrategy
         $artifacts = [];
         $exportedTables = [];
 
-        $whereClause = sprintf(
-            "updated_at >= '%s' AND updated_at <= '%s'",
-            $fromDate->format('Y-m-d H:i:s'),
-            $toDate->format('Y-m-d H:i:s')
-        );
+        // Build WHERE clause with properly escaped dates
+        $fromStr = $fromDate->format('Y-m-d H:i:s');
+        $toStr = $toDate->format('Y-m-d H:i:s');
+        $whereClause = 'updated_at >= \'' . str_replace("'", "\\'", $fromStr) . 
+                       '\' AND updated_at <= \'' . str_replace("'", "\\'", $toStr) . '\'';
 
         if ($outputMode === 'combined') {
             // Single file with all tables
