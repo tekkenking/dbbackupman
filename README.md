@@ -137,6 +137,21 @@ php artisan db:backup [options]
     * `--pg-csv-include=` CSV table patterns (`schema.table`, `*` allowed)
     * `--pg-csv-exclude=` CSV table patterns
 
+**MySQL-only**
+
+* Incremental:
+
+    * `--incremental-type=binlog|updated_at` Type of incremental (default: binlog)
+    * `--mysql-csv-include=` CSV of tables to include (for `updated_at` type)
+    * `--mysql-csv-exclude=` CSV of tables to exclude (for `updated_at` type)
+
+**Incremental options (PostgreSQL and MySQL `updated_at` type)**
+
+* `--from-date=` Start date for incremental exports (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
+* `--to-date=` End date for incremental exports (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS, defaults to now)
+* `--incremental-format=csv|sql` Format for incremental exports (default: csv)
+* `--incremental-output=separate|combined` Output style: separate (one file per table) or combined (single file) (default: separate)
+
 **State (incremental)**
 
 * `--state-disk=` Disk used to store state (default: first upload disk; else local)
@@ -182,6 +197,39 @@ php artisan db:backup \
 > Produces one CSV per table with rows where `updated_at > since`.
 > Does **not** capture deletes or schema changes — pair with periodic full backups.
 
+### PostgreSQL — incremental with date range and SQL format
+
+```bash
+# SQL format, separate files, specific date range
+php artisan db:backup \
+  --connection=pgsql \
+  --mode=incremental \
+  --from-date="2025-11-01" \
+  --to-date="2025-11-24" \
+  --incremental-format=sql \
+  --incremental-output=separate \
+  --pg-csv-include=public.orders,public.users \
+  --gzip \
+  --disks=s3
+
+# CSV format, combined file
+php artisan db:backup \
+  --connection=pgsql \
+  --mode=incremental \
+  --from-date="2025-11-01 00:00:00" \
+  --incremental-format=csv \
+  --incremental-output=combined \
+  --pg-csv-include=public.* \
+  --disks=s3
+```
+
+**New incremental options:**
+
+* `--from-date=` Start date for exports (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
+* `--to-date=` End date for exports (defaults to now)
+* `--incremental-format=csv|sql` Export format (default: csv)
+* `--incremental-output=separate|combined` Output style (default: separate)
+
 ### MySQL/MariaDB — full dump
 
 ```bash
@@ -192,7 +240,7 @@ php artisan db:backup \
   --remote-path=backups/mysql/full
 ```
 
-### MySQL/MariaDB — incremental via binlog
+### MySQL/MariaDB — incremental via binlog (default)
 
 ```bash
 php artisan db:backup \
@@ -202,7 +250,41 @@ php artisan db:backup \
   --remote-path=backups/mysql/incr
 ```
 
-**MySQL/MariaDB incremental prerequisites**
+### MySQL/MariaDB — incremental via `updated_at` (new!)
+
+```bash
+# SQL format, separate files per table
+php artisan db:backup \
+  --connection=mysql \
+  --mode=incremental \
+  --incremental-type=updated_at \
+  --from-date="2025-11-01" \
+  --to-date="2025-11-24" \
+  --incremental-format=sql \
+  --incremental-output=separate \
+  --mysql-csv-include=orders,users,products \
+  --gzip \
+  --disks=s3
+
+# CSV format, combined file
+php artisan db:backup \
+  --connection=mysql \
+  --mode=incremental \
+  --incremental-type=updated_at \
+  --from-date="2025-11-01 00:00:00" \
+  --incremental-format=csv \
+  --incremental-output=combined \
+  --mysql-csv-include=orders,users \
+  --disks=s3
+```
+
+**MySQL incremental options:**
+
+* `--incremental-type=binlog|updated_at` Type of incremental (default: binlog)
+* `--mysql-csv-include=` CSV of tables to include (for updated_at type)
+* `--mysql-csv-exclude=` CSV of tables to exclude (for updated_at type)
+
+**MySQL/MariaDB incremental prerequisites (binlog only)**
 
 `my.cnf`:
 
@@ -214,6 +296,60 @@ binlog_format=ROW
 
 Grant the backup user `REPLICATION CLIENT` so `SHOW MASTER STATUS` / `SHOW BINARY LOGS` work.
 Ensure `mysqlbinlog` is installed on the host running the command.
+
+---
+
+## Incremental Export Formats: CSV vs SQL
+
+When using `--mode=incremental` with the `updated_at` strategy (PostgreSQL or MySQL), you can choose between CSV and SQL output formats:
+
+### CSV Format (default)
+
+**Pros:**
+* Smaller file size
+* Faster to generate
+* Easy to import into staging tables
+* Works well with data analysis tools
+
+**Cons:**
+* Requires manual UPSERT logic to merge into target tables
+* Doesn't include SQL structure or metadata
+* Need to handle primary key conflicts manually
+
+**Use when:**
+* Loading into staging tables for manual review
+* Exporting data for analysis or ETL pipelines
+* File size and speed are priorities
+
+### SQL Format
+
+**Pros:**
+* Ready-to-execute INSERT statements
+* Can be applied directly with `mysql` or `psql`
+* Includes proper quoting and escaping
+* Self-documenting (shows table structure in comments)
+
+**Cons:**
+* Larger file size (SQL overhead)
+* Slower to generate
+* May have duplicate key conflicts if reapplied
+
+**Use when:**
+* Direct application to target database
+* Need human-readable restore scripts
+* Automation/replication scenarios
+
+### Output Modes
+
+**Separate (default):**
+* One file per table: `schema_table1.sql`, `schema_table2.sql`
+* Easier to selectively restore individual tables
+* Better for large datasets (parallel processing)
+
+**Combined:**
+* Single file with all tables: `database_my_incremental_20251124.sql`
+* Simpler to manage (one file to track)
+* Wrapped in transaction (BEGIN/COMMIT)
 
 ---
 
@@ -234,10 +370,23 @@ Set via `--remote-map` (preferred) or `config('dbbackup.upload.remote_map')`.
 
 ## Incremental Backups & State
 
-DbBackupman saves a small **state JSON** so the next incremental knows where to resume.
+DbBackupman supports different incremental strategies with different state management:
 
-* **MySQL/MariaDB**: `{conn}_mysql_state.json` → `{"file":"mysql-bin.000123","pos":45678}`
-* **PostgreSQL**: `{conn}_pgsql_state.json` → `{"since_utc":"2025-09-30T10:00:00Z"}`
+### MySQL/MariaDB Binlog (stateful)
+
+Uses `{conn}_mysql_state.json` → `{"file":"mysql-bin.000123","pos":45678}`
+
+State is automatically saved and used to resume from the last position.
+
+### PostgreSQL/MySQL updated_at (date-range)
+
+When using `--from-date` and `--to-date`, backups are based on explicit date ranges and don't use state files. This is ideal for:
+
+* One-time exports of historical data
+* Backfilling specific time periods
+* Parallel exports of different date ranges
+
+When using the default behavior (no date parameters), PostgreSQL saves: `{conn}_pgsql_state.json` → `{"since_utc":"2025-09-30T10:00:00Z"}`
 
 **Where is state stored?**
 
@@ -248,6 +397,28 @@ DbBackupman saves a small **state JSON** so the next incremental knows where to 
 
 * Disk base `backups/prod` → `backups/prod/_state/{conn}_mysql_state.json`
 * Disk base `""` (root) → `_state/{conn}_mysql_state.json`
+
+**Date Range Examples**
+
+```bash
+# Export last month's data
+php artisan db:backup \
+  --connection=pgsql \
+  --mode=incremental \
+  --from-date="2025-10-01" \
+  --to-date="2025-10-31 23:59:59" \
+  --incremental-format=sql \
+  --pg-csv-include=public.*
+
+# Export today's changes only
+php artisan db:backup \
+  --connection=mysql \
+  --mode=incremental \
+  --incremental-type=updated_at \
+  --from-date="2025-11-24 00:00:00" \
+  --incremental-format=csv \
+  --mysql-csv-include=orders,inventory
+```
 
 ---
 
@@ -285,22 +456,71 @@ gzcat app_db_my_full_YYYYMMDD_HHMMSS.sql.gz | mysql -h HOST -u USER -p DB_NAME
 
 ### Incremental
 
-* **PostgreSQL CSV:** Load into staging tables then **upsert** into targets using primary keys.
+#### PostgreSQL CSV
 
-  ```sql
-  \copy staging_orders FROM 'public_orders.csv' CSV HEADER;
-  -- MERGE / UPSERT into public.orders
-  ```
+Load into staging tables then **upsert** into targets using primary keys:
 
-  *Note:* CSV incremental does **not** capture deletes — schedule periodic full backups.
+```sql
+\copy staging_orders FROM 'public_orders.csv' CSV HEADER;
+-- MERGE / UPSERT into public.orders using ON CONFLICT
+INSERT INTO public.orders SELECT * FROM staging_orders
+ON CONFLICT (id) DO UPDATE SET ...;
+```
 
-* **MySQL/MariaDB binlog SQL:** Apply directly:
+*Note:* CSV incremental does **not** capture deletes — schedule periodic full backups.
 
-  ```bash
-  mysql -h HOST -u USER -p DB_NAME < app_db_my_incremental_YYYYMMDD_HHMMSS.binlog.sql
-  ```
+#### PostgreSQL SQL
 
-  Ensure GTID/binlog settings align with your environment; treat carefully if replication is used.
+Apply SQL files directly:
+
+```bash
+# Separate files
+psql -h HOST -U USER -d DB_NAME -f public_orders.sql
+psql -h HOST -U USER -d DB_NAME -f public_users.sql
+
+# Combined file (gzipped)
+gzcat app_db_pg_incremental_20251124.sql.gz | psql -h HOST -U USER -d DB_NAME
+
+# Single file
+psql -h HOST -U USER -d DB_NAME < app_db_pg_incremental_20251124.sql
+```
+
+*Note:* SQL format includes INSERT statements. Handle duplicate key conflicts based on your needs.
+
+#### MySQL CSV
+
+Load into staging tables then **upsert**:
+
+```bash
+# Load CSV into staging
+mysql -h HOST -u USER -p DB_NAME -e "LOAD DATA LOCAL INFILE 'orders.csv' INTO TABLE staging_orders FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n'"
+
+# Upsert into target
+mysql -h HOST -u USER -p DB_NAME -e "INSERT INTO orders SELECT * FROM staging_orders ON DUPLICATE KEY UPDATE ..."
+```
+
+#### MySQL SQL (updated_at)
+
+Apply SQL files directly:
+
+```bash
+# Separate files
+mysql -h HOST -u USER -p DB_NAME < orders.sql
+mysql -h HOST -u USER -p DB_NAME < users.sql
+
+# Combined file (gzipped)
+gzcat app_db_my_incremental_20251124.sql.gz | mysql -h HOST -u USER -p DB_NAME
+```
+
+#### MySQL binlog SQL
+
+Apply directly:
+
+```bash
+mysql -h HOST -u USER -p DB_NAME < app_db_my_incremental_YYYYMMDD_HHMMSS.binlog.sql
+```
+
+Ensure GTID/binlog settings align with your environment; treat carefully if replication is used.
 
 ---
 
