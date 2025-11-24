@@ -8,7 +8,8 @@ use Tekkenking\Dbbackupman\Contracts\Uploader;
 use Tekkenking\Dbbackupman\Services\Dump\MySqlDumper;
 use Tekkenking\Dbbackupman\Services\Dump\PostgresDumper;
 use Tekkenking\Dbbackupman\Services\Incremental\MySqlBinlog;
-use Tekkenking\Dbbackupman\Services\Incremental\PostgresUpdatedAtCsv;
+use Tekkenking\Dbbackupman\Services\Incremental\MySqlUpdatedAt;
+use Tekkenking\Dbbackupman\Services\Incremental\PostgresUpdatedAt;
 use Tekkenking\Dbbackupman\Services\Retention\RetentionService;
 use Tekkenking\Dbbackupman\Support\ConnectionInfo;
 use Tekkenking\Dbbackupman\Support\ProcessRunner;
@@ -36,6 +37,15 @@ class DbBackupCommand extends Command
 
         {--pg-csv-include= : (PG incremental) CSV table patterns}
         {--pg-csv-exclude= : (PG incremental) CSV table patterns}
+
+        {--incremental-type=binlog : (MySQL) Type: binlog|updated_at (default: binlog)}
+        {--mysql-csv-include= : (MySQL updated_at) CSV of tables to include}
+        {--mysql-csv-exclude= : (MySQL updated_at) CSV of tables to exclude}
+
+        {--from-date= : Start date for incremental exports (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)}
+        {--to-date= : End date for incremental exports (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS, defaults to now)}
+        {--incremental-format=csv : Format for incremental exports: csv|sql (default: csv)}
+        {--incremental-output=separate : Output style: separate (one file per table) or combined (single file)}
 
         {--out= : local output dir (default storage/app/db-backups)}
         {--disks= : CSV disks or use config(dbbackup.upload.disks)}
@@ -125,26 +135,47 @@ class DbBackupCommand extends Command
         if ($mode === 'incremental') {
             if ($driver === 'pgsql') {
                 $since = $this->option('since') ?: null;
-                $inc = app()->make(PostgresUpdatedAtCsv::class);
+                $inc = app()->make(PostgresUpdatedAt::class);
                 $result = $inc->run($conn, [
-                    'since_iso' => $since,
-                    'include'   => $this->csv($this->option('pg-csv-include')),
-                    'exclude'   => $this->csv($this->option('pg-csv-exclude')),
-                    'gzip'      => $gzip,
+                    'since_iso'     => $since,
+                    'from_date'     => $this->option('from-date'),
+                    'to_date'       => $this->option('to-date'),
+                    'format'        => $this->option('incremental-format') ?: 'csv',
+                    'output_mode'   => $this->option('incremental-output') ?: 'separate',
+                    'include'       => $this->csv($this->option('pg-csv-include')),
+                    'exclude'       => $this->csv($this->option('pg-csv-exclude')),
+                    'gzip'          => $gzip,
                 ]);
             } else {
-                $stateDisk = $this->option('state-disk') ?: ($disks[0] ?? null);
-                $stateBase = RemotePathResolver::forDisk($stateDisk ?? '', $remoteMap, $remotePlain);
-                $statePath = trim((string)($this->option('state-path') ?? ($stateBase !== '' ? $stateBase.'/_state' : '_state')), '/');
-                $stateName = ($statePath !== '' ? $statePath.'/' : '')."{$connName}_mysql_state.json";
-                $state     = $stateDisk ? $stateRepo->load($stateDisk, $stateName)
-                    : $stateRepo->load('local', storage_path("app/db-backups/_state/{$connName}_mysql_state.json"));
+                $incrementalType = strtolower($this->option('incremental-type') ?: 'binlog');
+                
+                if ($incrementalType === 'updated_at') {
+                    // MySQL updated_at incremental
+                    $inc = app()->make(MySqlUpdatedAt::class);
+                    $result = $inc->run($conn, [
+                        'from_date'     => $this->option('from-date'),
+                        'to_date'       => $this->option('to-date'),
+                        'format'        => $this->option('incremental-format') ?: 'csv',
+                        'output_mode'   => $this->option('incremental-output') ?: 'separate',
+                        'include'       => $this->csv($this->option('mysql-csv-include')),
+                        'exclude'       => $this->csv($this->option('mysql-csv-exclude')),
+                        'gzip'          => $gzip,
+                    ]);
+                } else {
+                    // MySQL binlog incremental (existing)
+                    $stateDisk = $this->option('state-disk') ?: ($disks[0] ?? null);
+                    $stateBase = RemotePathResolver::forDisk($stateDisk ?? '', $remoteMap, $remotePlain);
+                    $statePath = trim((string)($this->option('state-path') ?? ($stateBase !== '' ? $stateBase.'/_state' : '_state')), '/');
+                    $stateName = ($statePath !== '' ? $statePath.'/' : '')."{$connName}_mysql_state.json";
+                    $state     = $stateDisk ? $stateRepo->load($stateDisk, $stateName)
+                        : $stateRepo->load('local', storage_path("app/db-backups/_state/{$connName}_mysql_state.json"));
 
-                $inc = app()->make(MySqlBinlog::class);
-                $result = $inc->run($conn, [
-                    'state' => $state,
-                    'gzip'  => $gzip,
-                ]);
+                    $inc = app()->make(MySqlBinlog::class);
+                    $result = $inc->run($conn, [
+                        'state' => $state,
+                        'gzip'  => $gzip,
+                    ]);
+                }
             }
             $artifacts = array_merge($artifacts, $result['artifacts']);
             $manifest['files'] = array_map('basename', $result['artifacts']);
@@ -183,12 +214,18 @@ class DbBackupCommand extends Command
         // state persist (incremental)
         if ($mode === 'incremental') {
             if ($driver === 'mysql') {
-                $stateDisk = $this->option('state-disk') ?: ($disks[0] ?? null);
-                $base = RemotePathResolver::forDisk($stateDisk ?? '', $remoteMap, $remotePlain);
-                $statePath = trim((string)($this->option('state-path') ?? ($base !== '' ? $base.'/_state' : '_state')), '/');
-                $name = ($statePath !== '' ? $statePath.'/' : '')."{$connName}_mysql_state.json";
-                if ($stateDisk) $stateRepo->save($stateDisk, $name, $manifest['meta']['to'] ?? []);
-                else $stateRepo->save('local', storage_path("app/db-backups/_state/{$connName}_mysql_state.json"), $manifest['meta']['to'] ?? []);
+                $incrementalType = strtolower($this->option('incremental-type') ?: 'binlog');
+                
+                if ($incrementalType === 'binlog') {
+                    // Only persist state for binlog type
+                    $stateDisk = $this->option('state-disk') ?: ($disks[0] ?? null);
+                    $base = RemotePathResolver::forDisk($stateDisk ?? '', $remoteMap, $remotePlain);
+                    $statePath = trim((string)($this->option('state-path') ?? ($base !== '' ? $base.'/_state' : '_state')), '/');
+                    $name = ($statePath !== '' ? $statePath.'/' : '')."{$connName}_mysql_state.json";
+                    if ($stateDisk) $stateRepo->save($stateDisk, $name, $manifest['meta']['to'] ?? []);
+                    else $stateRepo->save('local', storage_path("app/db-backups/_state/{$connName}_mysql_state.json"), $manifest['meta']['to'] ?? []);
+                }
+                // For updated_at type, we don't persist state as we use date ranges
             } else {
                 $stateDisk = $this->option('state-disk') ?: ($disks[0] ?? null);
                 $base = RemotePathResolver::forDisk($stateDisk ?? '', $remoteMap, $remotePlain);
@@ -245,7 +282,13 @@ class DbBackupCommand extends Command
             if ($globals) $toCheck[] = $tools['pg_dumpall'] ?? 'pg_dumpall';
         } else {
             $toCheck[] = $tools['mysqldump'] ?? 'mysqldump';
-            if ($mode === 'incremental') $toCheck[] = $tools['mysqlbinlog'] ?? 'mysqlbinlog';
+            if ($mode === 'incremental') {
+                $incrementalType = strtolower($this->option('incremental-type') ?: 'binlog');
+                if ($incrementalType === 'binlog') {
+                    $toCheck[] = $tools['mysqlbinlog'] ?? 'mysqlbinlog';
+                }
+                // For updated_at, we also need mysql client and mysqldump (already added above)
+            }
         }
 
         foreach ($toCheck as $bin) {
