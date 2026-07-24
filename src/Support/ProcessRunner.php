@@ -18,7 +18,9 @@ class ProcessRunner
         });
 
         if (!$p->isSuccessful()) {
-            throw new RuntimeException("Command failed: " . implode(' ', $cmd) . "\n" . $p->getErrorOutput());
+            throw new RuntimeException(
+                "Command failed: " . SecretRedactor::redactCommand($cmd) . "\n" . $p->getErrorOutput()
+            );
         }
     }
 
@@ -43,7 +45,9 @@ class ProcessRunner
         fclose($fh);
 
         if (!$p->isSuccessful()) {
-            throw new RuntimeException("Command failed: " . implode(' ', $cmd) . "\n" . $p->getErrorOutput());
+            throw new RuntimeException(
+                "Command failed: " . SecretRedactor::redactCommand($cmd) . "\n" . $p->getErrorOutput()
+            );
         }
     }
 

@@ -12,6 +12,8 @@ use Tekkenking\Dbbackupman\Services\Incremental\MySqlUpdatedAt;
 use Tekkenking\Dbbackupman\Services\Incremental\PostgresUpdatedAt;
 use Tekkenking\Dbbackupman\Services\Retention\RetentionService;
 use Tekkenking\Dbbackupman\Support\ConnectionInfo;
+use Tekkenking\Dbbackupman\Support\OptionParser;
+use Tekkenking\Dbbackupman\Support\OptionValidator;
 use Tekkenking\Dbbackupman\Support\ProcessRunner;
 use Tekkenking\Dbbackupman\Support\RemotePathResolver;
 use Carbon\CarbonImmutable;
@@ -82,6 +84,16 @@ class DbBackupCommand extends Command
 
         $mode  = strtolower($this->option('mode') ?: 'full');
         $out   = $this->option('out') ?: storage_path('app/db-backups');
+
+        // Validate parsed options before doing any real work
+        $parsed = (new OptionParser())->parse(array_merge($this->options(), ['driver' => $driverRaw]));
+        $validator = (new OptionValidator())->validate($parsed);
+        if ($validator->fails()) {
+            foreach ($validator->errors() as $error) {
+                $this->components->error($error);
+            }
+            return self::FAILURE;
+        }
 
         $tools = config('dbbackup.tools');
         $disks = $this->csv($this->option('disks') ?: implode(',', config('dbbackup.upload.disks', [])));
