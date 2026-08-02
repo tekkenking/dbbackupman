@@ -6,7 +6,7 @@ Cross-DB backups for Laravel with uploads, incremental modes, retention, and per
 * **Modes:** `full`, `schema`, `incremental`
 * **Uploads:** Multiple filesystem disks; per-disk remote paths (empty path → bucket root)
 * **Retention:** Keep N latest sets and/or delete sets older than D days
-* **Laravel:** 10 · 11 · 12 (PHP 8.1+)
+* **Laravel:** 10 · 11 · 12 (PHP 8.2+)
 
 `composer` package: **`tekkenking/dbbackupman`**
 Namespace: **`Tekkenking\Dbbackupman`**
@@ -36,7 +36,7 @@ Namespace: **`Tekkenking\Dbbackupman`**
 
 ## Requirements
 
-* PHP **8.1+** (8.2/8.3 recommended)
+* PHP **8.2+** (8.2–8.5 supported)
 * Laravel **10 / 11 / 12**
 * DB client tools available on the host that runs the command:
 
@@ -608,7 +608,7 @@ vendor/bin/phpunit --testdox
 ```
 
 If you see version conflicts with Laravel/Testbench/PHPUnit, align versions (e.g., Testbench 10 for Laravel 12).
-A CI matrix can test PHP 8.1–8.3 × Laravel 10/11/12.
+A CI matrix tests PHP 8.2–8.5 × Laravel 10/11/12.
 
 ---
 
@@ -635,7 +635,7 @@ A CI matrix can test PHP 8.1–8.3 × Laravel 10/11/12.
 
 | Laravel |  PHP | Testbench | PHPUnit |
 | :-----: | :--: | :-------: | :-----: |
-|   10.x  | ≥8.1 |    ^8.0   |  ^10.5  |
+|   10.x  | ≥8.2 |    ^8.0   |  ^10.5  |
 |   11.x  | ≥8.2 |    ^9.0   |  ^10.5  |
 |   12.x  | ≥8.2 |   ^10.0   |  ^11.x  |
 
