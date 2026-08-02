@@ -41,7 +41,7 @@ Namespace: **`Tekkenking\Dbbackupman`**
 * DB client tools available on the host that runs the command:
 
     * PostgreSQL: `pg_dump`, `psql` (and `pg_dumpall` if using `--globals`)
-    * MySQL/MariaDB: `mysqldump`, `mysqlbinlog` (for incremental)
+    * MySQL/MariaDB: `mysqldump`; `mysqlbinlog` (for `incremental` binlog mode); `mysql` client (for `incremental` `updated_at` mode)
 * Properly configured Laravel **database connection(s)** and **filesystem disk(s)**
 
 > The command preflights required tools and will error early if a binary is missing.
@@ -87,6 +87,10 @@ return [
         'keep' => null,  // keep last N sets
         'days' => null,  // delete sets older than D days
     ],
+
+    // When true, keeps the uncompressed file alongside the .gz when --gzip is used.
+    // Set DBBACKUP_KEEP_RAW=true in .env to enable.
+    'keep_raw' => env('DBBACKUP_KEEP_RAW', false),
 ];
 ```
 
@@ -598,7 +602,9 @@ This repo is set up for **Orchestra Testbench**.
 
 ```bash
 composer install
-vendor/bin/phpunit
+composer test            # runs vendor/bin/phpunit --testdox
+# or directly:
+vendor/bin/phpunit --testdox
 ```
 
 If you see version conflicts with Laravel/Testbench/PHPUnit, align versions (e.g., Testbench 10 for Laravel 12).
@@ -609,7 +615,7 @@ A CI matrix can test PHP 8.1–8.3 × Laravel 10/11/12.
 ## Troubleshooting
 
 * **“Required tool not found…”**
-  Install the DB client tools your mode needs (`pg_dump`, `psql`, `pg_dumpall`, `mysqldump`, `mysqlbinlog`).
+  Install the DB client tools your mode needs (`pg_dump`, `psql`, `pg_dumpall`, `mysqldump`, `mysqlbinlog` for MySQL binlog mode, `mysql` client for MySQL `updated_at` mode).
 
 * **MySQL incremental says binary logs disabled**
   Verify `log_bin` and `binlog_format=ROW` in `my.cnf`. Ensure your user has `REPLICATION CLIENT`.
@@ -637,7 +643,7 @@ A CI matrix can test PHP 8.1–8.3 × Laravel 10/11/12.
 
 ## Security Notes
 
-* **Secrets on CLI:** MySQL tools receive `--password=...`, which may be visible to local process lists. Run on trusted hosts. (Postgres uses `PGPASSWORD` env for `pg_dump`/`psql`.)
+* **Secrets on CLI:** `mysqldump` receives `--******` as a CLI argument which may be visible to OS process lists. Run backups on trusted hosts. Passwords are automatically redacted from error messages and logs by the built-in `SecretRedactor`. (PostgreSQL uses the `PGPASSWORD` environment variable for `pg_dump`/`psql`, keeping credentials out of the process list.)
 * Lock down `storage/app/db-backups` permissions.
 * Use least-privilege DB accounts suitable for backups.
 
