@@ -36,8 +36,22 @@ final class SecretRedactor
     public static function redactCommand(array $cmd): string
     {
         $safe = [];
+        $redactNext = false;
         foreach ($cmd as $token) {
             $token = (string)$token;
+
+            if ($redactNext) {
+                $safe[] = self::REDACTED;
+                $redactNext = false;
+                continue;
+            }
+
+            if ($token === '-p') {
+                $safe[] = $token;
+                $redactNext = true;
+                continue;
+            }
+
             $safe[] = self::redactToken($token);
         }
 
@@ -55,6 +69,9 @@ final class SecretRedactor
 
         // Replace -pVALUE with -p[REDACTED] (only when -p is not part of --password)
         $str = preg_replace('/(?<!-)-p(?=[^-\s\r\n])\S+/', '-p' . self::REDACTED, $str) ?? $str;
+
+        // Replace "-p secret" with "-p [REDACTED]"
+        $str = preg_replace('/(?<!\S)-p\s+\S+/', '-p ' . self::REDACTED, $str) ?? $str;
 
         // Replace ENV_VAR=VALUE with ENV_VAR=[REDACTED]
         $str = preg_replace(

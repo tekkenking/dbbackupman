@@ -123,6 +123,38 @@ class OptionValidatorTest extends TestCase
         $this->assertStringContainsString('PostgreSQL incremental', $v->firstError());
     }
 
+    public function test_mysql_incremental_with_binlog_passes(): void
+    {
+        $opts = $this->parser->parse([
+            'mode'             => 'incremental',
+            'driver'           => 'mysql',
+            'incremental-type' => 'binlog',
+        ]);
+        $this->assertTrue($this->validator->validate($opts)->passes());
+    }
+
+    public function test_mysql_incremental_with_updated_at_passes(): void
+    {
+        $opts = $this->parser->parse([
+            'mode'             => 'incremental',
+            'driver'           => 'mysql',
+            'incremental-type' => 'updated_at',
+        ]);
+        $this->assertTrue($this->validator->validate($opts)->passes());
+    }
+
+    public function test_mysql_incremental_with_unknown_type_fails(): void
+    {
+        $opts = $this->parser->parse([
+            'mode'             => 'incremental',
+            'driver'           => 'mysql',
+            'incremental-type' => 'typo',
+        ]);
+        $v = $this->validator->validate($opts);
+        $this->assertTrue($v->fails());
+        $this->assertStringContainsString('MySQL incremental', $v->firstError());
+    }
+
     // ── incremental-format and incremental-output ─────────────────────────
 
     public function test_invalid_incremental_format_fails(): void

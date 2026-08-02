@@ -131,6 +131,16 @@ final class OptionValidator
                 );
             }
         }
+
+        if ($driver === 'mysql' || $driver === 'mariadb') {
+            $type = $options['incremental_type'] ?? '';
+            if ($type !== '' && !in_array($type, ['binlog', 'updated_at'], true)) {
+                $this->errors[] = sprintf(
+                    'MySQL incremental supports only incremental-type=binlog or updated_at (got "%s").',
+                    $type
+                );
+            }
+        }
     }
 
     private function validateDateRange(array $options): void

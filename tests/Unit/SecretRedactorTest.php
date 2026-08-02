@@ -44,6 +44,16 @@ class SecretRedactorTest extends TestCase
         $this->assertStringContainsString('[REDACTED]', $result);
     }
 
+    public function test_redact_command_hides_split_short_p_flag(): void
+    {
+        $secret = 'hunter2';
+        $cmd    = ['mysql', '-u', 'root', '-p', $secret, 'mydb'];
+        $result = SecretRedactor::redactCommand($cmd);
+
+        $this->assertStringNotContainsString($secret, $result);
+        $this->assertStringContainsString('-p [REDACTED]', $result);
+    }
+
     public function test_redact_command_preserves_non_sensitive_tokens(): void
     {
         $cmd = ['pg_dump', '--format=custom', '--file', '/tmp/dump.sql', '--dbname=mydb'];
@@ -78,6 +88,16 @@ class SecretRedactorTest extends TestCase
         $this->assertStringNotContainsString($secret, $result);
         $this->assertStringContainsString('[REDACTED]', $result);
         $this->assertStringContainsString('--password=', $result);
+    }
+
+    public function test_redact_string_hides_split_short_p_flag(): void
+    {
+        $secret = 'supersecret';
+        $str    = 'mysql -u root -p ' . $secret . ' mydb';
+        $result = SecretRedactor::redact($str);
+
+        $this->assertStringNotContainsString($secret, $result);
+        $this->assertStringContainsString('-p [REDACTED]', $result);
     }
 
     public function test_redact_string_hides_pgpassword_env(): void
