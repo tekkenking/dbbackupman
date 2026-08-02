@@ -3,13 +3,10 @@ declare(strict_types=1);
 
 namespace Tekkenking\Dbbackupman\Console;
 
+use Tekkenking\Dbbackupman\Application\BackupContext;
+use Tekkenking\Dbbackupman\Application\BackupOrchestrator;
 use Tekkenking\Dbbackupman\Contracts\StateRepository;
 use Tekkenking\Dbbackupman\Contracts\Uploader;
-use Tekkenking\Dbbackupman\Services\Dump\MySqlDumper;
-use Tekkenking\Dbbackupman\Services\Dump\PostgresDumper;
-use Tekkenking\Dbbackupman\Services\Incremental\MySqlBinlog;
-use Tekkenking\Dbbackupman\Services\Incremental\MySqlUpdatedAt;
-use Tekkenking\Dbbackupman\Services\Incremental\PostgresUpdatedAt;
 use Tekkenking\Dbbackupman\Services\Retention\RetentionService;
 use Tekkenking\Dbbackupman\Support\ConnectionInfo;
 use Tekkenking\Dbbackupman\Support\OptionParser;
@@ -63,10 +60,11 @@ class DbBackupCommand extends Command
     protected $description = 'Database backup with uploads and retention (DbBackupman).';
 
     public function handle(
-        ProcessRunner $runner,          // used for tool preflight
+        ProcessRunner $runner,
         Uploader $uploader,
         StateRepository $stateRepo,
-        RetentionService $retention    // now used below
+        RetentionService $retention,
+        BackupOrchestrator $orchestrator
     ): int {
         $connName = $this->option('connection') ?: config('database.default');
         $cfg      = config("database.connections.$connName");
@@ -144,71 +142,50 @@ class DbBackupCommand extends Command
         ];
         $artifacts = [];
 
-        if ($mode === 'incremental') {
-            if ($driver === 'pgsql') {
-                $since = $this->option('since') ?: null;
-                $inc = app()->make(PostgresUpdatedAt::class);
-                $result = $inc->run($conn, [
-                    'since_iso'     => $since,
-                    'from_date'     => $this->option('from-date'),
-                    'to_date'       => $this->option('to-date'),
-                    'format'        => $this->option('incremental-format') ?: 'csv',
-                    'output_mode'   => $this->option('incremental-output') ?: 'separate',
-                    'include'       => $this->csv($this->option('pg-csv-include')),
-                    'exclude'       => $this->csv($this->option('pg-csv-exclude')),
-                    'gzip'          => $gzip,
-                ]);
-            } else {
-                $incrementalType = strtolower($this->option('incremental-type') ?: 'binlog');
-                
-                if ($incrementalType === 'updated_at') {
-                    // MySQL updated_at incremental
-                    $inc = app()->make(MySqlUpdatedAt::class);
-                    $result = $inc->run($conn, [
-                        'from_date'     => $this->option('from-date'),
-                        'to_date'       => $this->option('to-date'),
-                        'format'        => $this->option('incremental-format') ?: 'csv',
-                        'output_mode'   => $this->option('incremental-output') ?: 'separate',
-                        'include'       => $this->csv($this->option('mysql-csv-include')),
-                        'exclude'       => $this->csv($this->option('mysql-csv-exclude')),
-                        'gzip'          => $gzip,
-                    ]);
-                } else {
-                    // MySQL binlog incremental (existing)
-                    $stateDisk = $this->option('state-disk') ?: ($disks[0] ?? null);
-                    $stateBase = RemotePathResolver::forDisk($stateDisk ?? '', $remoteMap, $remotePlain);
-                    $statePath = trim((string)($this->option('state-path') ?? ($stateBase !== '' ? $stateBase.'/_state' : '_state')), '/');
-                    $stateName = ($statePath !== '' ? $statePath.'/' : '')."{$connName}_mysql_state.json";
-                    $state     = $stateDisk ? $stateRepo->load($stateDisk, $stateName)
-                        : $stateRepo->load('local', storage_path("app/db-backups/_state/{$connName}_mysql_state.json"));
-
-                    $inc = app()->make(MySqlBinlog::class);
-                    $result = $inc->run($conn, [
-                        'state' => $state,
-                        'gzip'  => $gzip,
-                    ]);
-                }
-            }
-            $artifacts = array_merge($artifacts, $result['artifacts']);
-            $manifest['files'] = array_map('basename', $result['artifacts']);
-            $manifest['meta']  = $result['manifest_meta'];
-        } else {
-            $dumper = $driver === 'pgsql'
-                ? app()->make(PostgresDumper::class)
-                : app()->make(MySqlDumper::class);
-
-            $result = $dumper->dump($conn, [
-                'mode'       => $mode,
-                'gzip'       => $gzip,
-                'no_owner'   => (bool)$this->option('no-owner'),
-                'per_schema' => (bool)$this->option('per-schema'),
-                'include'    => $this->csv($this->option('include')),
-                'exclude'    => $this->csv($this->option('exclude')),
-                'globals'    => (bool)$this->option('globals'),
-            ]);
-            $artifacts = array_merge($artifacts, $result['artifacts']);
-            $manifest  = array_merge_recursive($manifest, $result['manifest']);
+        // Load MySQL binlog state before dispatch (must happen here so it is available for post-run persistence too)
+        $mysqlBinlogState = [];
+        if ($mode === 'incremental' && $driver === 'mysql'
+            && strtolower($this->option('incremental-type') ?: 'binlog') === 'binlog') {
+            $stateDisk = $this->option('state-disk') ?: ($disks[0] ?? null);
+            $stateBase = RemotePathResolver::forDisk($stateDisk ?? '', $remoteMap, $remotePlain);
+            $statePath = trim((string)($this->option('state-path') ?? ($stateBase !== '' ? $stateBase.'/_state' : '_state')), '/');
+            $stateName = ($statePath !== '' ? $statePath.'/' : '')."{$connName}_mysql_state.json";
+            $mysqlBinlogState = $stateDisk
+                ? $stateRepo->load($stateDisk, $stateName)
+                : $stateRepo->load('local', storage_path("app/db-backups/_state/{$connName}_mysql_state.json"));
         }
+
+        $context = new BackupContext(
+            connection: $connName,
+            driver: $driver,
+            mode: $mode,
+            gzip: $gzip,
+            outputDir: $out,
+            options: [
+                'conn'               => $conn,
+                'state'              => $mysqlBinlogState,
+                'since_iso'          => $this->option('since') ?: null,
+                'from_date'          => $this->option('from-date'),
+                'to_date'            => $this->option('to-date'),
+                'incremental_format' => $this->option('incremental-format') ?: 'csv',
+                'incremental_output' => $this->option('incremental-output') ?: 'separate',
+                'incremental_type'   => strtolower($this->option('incremental-type') ?: 'binlog'),
+                'pg_include'         => $this->csv($this->option('pg-csv-include')),
+                'pg_exclude'         => $this->csv($this->option('pg-csv-exclude')),
+                'mysql_include'      => $this->csv($this->option('mysql-csv-include')),
+                'mysql_exclude'      => $this->csv($this->option('mysql-csv-exclude')),
+                'no_owner'           => (bool)$this->option('no-owner'),
+                'per_schema'         => (bool)$this->option('per-schema'),
+                'include'            => $this->csv($this->option('include')),
+                'exclude'            => $this->csv($this->option('exclude')),
+                'globals'            => (bool)$this->option('globals'),
+            ],
+        );
+
+        $result    = $orchestrator->run($context);
+        $artifacts = array_merge($artifacts, $result['artifacts']);
+        $manifest['files'] = array_merge($manifest['files'], $result['manifest_files']);
+        $manifest['meta']  = $result['meta'];
 
         // write manifest
         $abbr = $driver === 'pgsql' ? 'pg' : 'my';
