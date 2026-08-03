@@ -209,7 +209,7 @@ SQL)->fetchAll(\PDO::FETCH_ASSOC);
         
         try {
             $sql = sprintf(
-                "COPY (SELECT * FROM \"%s\".\"%s\" WHERE \"updated_at\" >= TIMESTAMP '%s' AND \"updated_at\" <= TIMESTAMP '%s') TO STDOUT WITH CSV",
+                "COPY (SELECT * FROM \"%s\".\"%s\" WHERE \"updated_at\" >= TIMESTAMP '%s' AND \"updated_at\" <= TIMESTAMP '%s') TO STDOUT WITH CSV NULL '\\N'",
                 addslashes($schema),
                 addslashes($table),
                 addslashes($fromDate->format('Y-m-d H:i:s')),
@@ -227,11 +227,13 @@ SQL)->fetchAll(\PDO::FETCH_ASSOC);
                         $line = trim($line);
                         if ($line === '') continue;
                         
-                        // Parse CSV line and escape for SQL
+                        // Parse CSV line and escape for SQL.
+                        // NULL fields are output as \N (due to NULL '\N' in COPY); quoted empty
+                        // strings ("") are parsed by str_getcsv as '' and quoted via PDO::quote.
                         $values = str_getcsv($line);
                         $escapedValues = array_map(function($val) use ($pdo) {
-                            if ($val === '' || $val === null) return 'NULL';
-                            return $pdo->quote($val);
+                            if ($val === '\\N') return 'NULL';
+                            return $pdo->quote((string)$val);
                         }, $values);
                         
                         fwrite($fh, "INSERT INTO \"{$schema}\".\"{$table}\" ({$columnList}) VALUES (" . implode(', ', $escapedValues) . ");\n");

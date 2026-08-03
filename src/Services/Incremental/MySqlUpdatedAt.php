@@ -195,7 +195,7 @@ class MySqlUpdatedAt implements IncrementalStrategy
     private function dumpTableToFile($fh, ConnectionInfo $c, string $table, string $whereClause): void
     {
         $cmd = [
-            $c->tools['mysqldump'],
+            $c->tools['mysqldump'] ?? 'mysqldump',
             '--host=' . $c->host,
             '--port=' . $c->port,
             '--user=' . $c->username,
