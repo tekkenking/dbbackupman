@@ -644,7 +644,7 @@ A CI matrix tests PHP 8.2–8.5 × Laravel 10/11/12.
 
 ## Security Notes
 
-* **Secrets on CLI:** `mysqldump` receives `--******` as a CLI argument which may be visible to OS process lists. Run backups on trusted hosts. Passwords are automatically redacted from error messages and logs by the built-in `SecretRedactor`. (PostgreSQL uses the `PGPASSWORD` environment variable for `pg_dump`/`psql`, keeping credentials out of the process list.)
+* **Secrets on CLI:** `mysqldump` receives `--password=...` as a CLI argument which may be visible to OS process lists. Run backups on trusted hosts. Passwords are automatically redacted from error messages and logs by the built-in `SecretRedactor`. (PostgreSQL uses the `PGPASSWORD` environment variable for `pg_dump`/`psql`, keeping credentials out of the process list.)
 * Lock down `storage/app/db-backups` permissions.
 * Use least-privilege DB accounts suitable for backups.
 
