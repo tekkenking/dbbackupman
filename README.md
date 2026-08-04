@@ -37,7 +37,7 @@ Namespace: **`Tekkenking\Dbbackupman`**
 ## Requirements
 
 * PHP **8.2+** (8.2–8.5 supported)
-* Laravel **10 / 11 / 12**
+* Laravel **10 / 11 / 12 / 13**
 * DB client tools available on the host that runs the command:
 
     * PostgreSQL: `pg_dump`, `psql` (and `pg_dumpall` if using `--globals`)
@@ -608,7 +608,7 @@ vendor/bin/phpunit --testdox
 ```
 
 If you see version conflicts with Laravel/Testbench/PHPUnit, align versions (e.g., Testbench 10 for Laravel 12, Testbench 11 for Laravel 13).
-A CI matrix tests PHP 8.2–8.5 × Laravel 10/11/12.
+A CI matrix tests PHP 8.2–8.5 across Laravel 10/11/12/13.
 
 ---
 
@@ -644,7 +644,7 @@ A CI matrix tests PHP 8.2–8.5 × Laravel 10/11/12.
 
 ## Security Notes
 
-* **Secrets on CLI:** `mysqldump` receives `--password=...` as a CLI argument which may be visible to OS process lists. Run backups on trusted hosts. Passwords are automatically redacted from error messages and logs by the built-in `SecretRedactor`. (PostgreSQL uses the `PGPASSWORD` environment variable for `pg_dump`/`psql`, keeping credentials out of the process list.)
+* **Secrets on CLI:** `mysqldump` receives `--password=...` as a CLI argument which may be visible to OS process lists. Run backups on trusted hosts. Passwords are automatically redacted from error output where possible.
 * Lock down `storage/app/db-backups` permissions.
 * Use least-privilege DB accounts suitable for backups.
 
